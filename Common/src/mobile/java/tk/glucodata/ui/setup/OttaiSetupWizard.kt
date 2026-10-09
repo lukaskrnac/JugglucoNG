@@ -61,6 +61,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -89,6 +90,7 @@ import tk.glucodata.R
 import tk.glucodata.SensorBluetooth
 import tk.glucodata.drivers.ottai.OttaiBleManager
 import tk.glucodata.drivers.ottai.OttaiCloudClient
+import tk.glucodata.drivers.ottai.OttaiCloudUploader
 import tk.glucodata.drivers.ottai.OttaiConstants
 import tk.glucodata.drivers.ottai.OttaiNfc
 import tk.glucodata.drivers.ottai.OttaiRegistry
@@ -1218,6 +1220,10 @@ fun OttaiSetupWizard(
                                     }
                                 }) { Text(stringResource(R.string.ottai_sign_out)) }
                             }
+                            val syaiAccount = remember(signedIn) {
+                                OttaiRegistry.loadApiBase(context) == OttaiConstants.API_BASE_SYAI
+                            }
+                            if (syaiAccount) OttaiCloudUploadCard()
                         }
 
                         OttaiBleScanPanel(
@@ -1798,6 +1804,59 @@ fun OttaiSettingsScreen(navController: NavController) {
         onDismiss = { navController.popBackStack() },
         onComplete = { navController.popBackStack() },
     )
+}
+
+/** Switch for the Syai cloud upload, with what the last attempt did. */
+@Composable
+private fun OttaiCloudUploadCard() {
+    val context = LocalContext.current
+    var enabled by remember { mutableStateOf(OttaiRegistry.loadCloudUploadEnabled(context)) }
+    var statusText by remember { mutableStateOf("") }
+    // The uploader runs in the background; refresh its status while the card is visible.
+    LaunchedEffect(enabled) {
+        while (true) {
+            statusText = OttaiCloudUploader.unavailableReason(context)
+                ?: OttaiRegistry.loadCloudUploadStatus(context)
+                    .ifBlank { context.getString(R.string.ottai_cloud_upload_waiting) }
+            delay(5_000L)
+        }
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Cloud, contentDescription = null)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    stringResource(R.string.ottai_cloud_upload_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { on ->
+                        enabled = on
+                        OttaiRegistry.saveCloudUploadEnabled(context, on)
+                        OttaiRegistry.saveCloudUploadStatus(context, null)
+                        if (!on) OttaiCloudUploader.discardQueues(context)
+                    },
+                )
+            }
+            Text(
+                stringResource(R.string.ottai_cloud_upload_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (enabled) {
+                Text(statusText, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
 }
 
 @Composable

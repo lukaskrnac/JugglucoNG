@@ -75,6 +75,9 @@ object OttaiConstants {
     const val EP_GET_BIND_DEVICE = "$PREFIX/deviceBind/getBindDevice"
     const val EP_DEVICE_LIST = "$PREFIX/deviceBind/list"  // account's bound + past sensors (paged)
     const val EP_DOWNLOAD_GLUCOSE = "$PREFIX/search/downloadGlucose"
+    // Where the Syai Tag app sends its readings. Not under PREFIX. Taken from the xDrip4iOS
+    // Ottai/Syai port (luborjurena/xdripswift, branch feat/ottai-syai), which mirrors the app.
+    const val EP_COLLECT_GLUCOSE_V2 = "/cgm/data/collect/collect/glucose/v2"
 
     /**
      * Default phone-app headers (matches the working bind helper). The four
@@ -386,4 +389,9 @@ object OttaiConstants {
     const val PREF_SELF_DEVICE_ID = "ottai_self_device_id"
     // CN phone SDK common-header identity. This is separate from the legacy watch/global id.
     const val PREF_CN_COMMON_DEVICE_ID = "ottai_cn_common_device_id"
+    // Upload of accepted readings to the Syai cloud (see OttaiCloudUploader). Off by default.
+    const val PREF_CLOUD_UPLOAD_ENABLED = "ottai_cloud_upload_enabled"
+    const val PREF_CLOUD_UPLOAD_STATUS = "ottai_cloud_upload_status"
+    // The uuid in the upload's deviceid header ("Syai Tag:a:n:<uuid>"). Made once, kept.
+    const val PREF_CLOUD_UPLOAD_DEVICE_UUID = "ottai_cloud_upload_device_uuid"
 }

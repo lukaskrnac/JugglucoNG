@@ -103,6 +103,40 @@ object OttaiRegistry {
         prefs(c).edit().putString(OttaiConstants.PREF_USER_ID, v).apply()
     }
 
+    // ---- upload to the Syai cloud (OttaiCloudUploader) ----
+
+    @JvmStatic fun loadCloudUploadEnabled(c: Context): Boolean =
+        prefs(c).getBoolean(OttaiConstants.PREF_CLOUD_UPLOAD_ENABLED, false)
+    @JvmStatic fun saveCloudUploadEnabled(c: Context, v: Boolean) {
+        prefs(c).edit().putBoolean(OttaiConstants.PREF_CLOUD_UPLOAD_ENABLED, v).apply()
+    }
+
+    /** A short text for the settings screen: what the last upload attempt did. */
+    @JvmStatic fun loadCloudUploadStatus(c: Context): String =
+        prefs(c).getString(OttaiConstants.PREF_CLOUD_UPLOAD_STATUS, null).orEmpty()
+    @JvmStatic fun saveCloudUploadStatus(c: Context, v: String?) {
+        prefs(c).edit().apply {
+            if (v.isNullOrBlank()) remove(OttaiConstants.PREF_CLOUD_UPLOAD_STATUS)
+            else putString(OttaiConstants.PREF_CLOUD_UPLOAD_STATUS, v)
+        }.apply()
+    }
+
+    /** The uuid in the upload's deviceid header. Made once, kept, like the Syai Tag app's. */
+    @JvmStatic fun loadOrCreateCloudUploadDeviceUuid(c: Context): String {
+        val existing = prefs(c).getString(OttaiConstants.PREF_CLOUD_UPLOAD_DEVICE_UUID, null)
+        if (!existing.isNullOrBlank()) return existing
+        val generated = java.util.UUID.randomUUID().toString().lowercase(java.util.Locale.ROOT)
+        prefs(c).edit().putString(OttaiConstants.PREF_CLOUD_UPLOAD_DEVICE_UUID, generated).apply()
+        return generated
+    }
+
+    /** The cloud device-record id of a sensor, used as deviceId in the upload body. */
+    @JvmStatic fun saveDeviceId(c: Context, sensorId: String, deviceId: Int) {
+        val id = resolveCanonicalSensorId(c, sensorId)
+            ?: OttaiConstants.canonicalSensorId(sensorId).ifEmpty { sensorId }
+        prefs(c).edit().putInt(OttaiConstants.PREF_DEVICE_ID_PREFIX + id, deviceId).apply()
+    }
+
     /** The login the user typed at sign-in (phone / email / username) — for display only. */
     @JvmStatic fun loadAccountLogin(c: Context): String =
         prefs(c).getString(OttaiConstants.PREF_ACCOUNT_LOGIN, null).orEmpty()

@@ -507,6 +507,7 @@ object OttaiCloudClient {
         OttaiRegistry.saveAccountLogin(ctx, null)
         OttaiRegistry.saveSessionProfile(ctx, null)
         OttaiRegistry.saveApiBase(ctx, OttaiConstants.API_BASE)  // reset to CN default
+        OttaiRegistry.saveCloudUploadStatus(ctx, null)
     }
 
     fun validateByMac(ctx: Context, mac: String): DeviceResp? =
@@ -661,6 +662,7 @@ object OttaiCloudClient {
         deviceVersion: String,
         userId: String?,
         contract: BindContract,
+        activeTimeMs: Long? = null,
     ): DeviceResp? {
         val canonical = OttaiConstants.canonicalSensorId(mac)
         if (canonical.isBlank() || deviceVersion.isBlank()) {
@@ -672,13 +674,16 @@ object OttaiCloudClient {
             return null
         }
         val ts = now()
+        // The server takes activeTime as the sensor start. Without an explicit start it is "now",
+        // which is right only for a sensor being started by this request.
+        val activeMs = activeTimeMs?.takeIf { it > 0L } ?: ts
         // Legacy keeps its live-proven millisecond activeTime; V3 mirrors the official
         // caller's floor(ms/1000) seconds conversion.
         val body = bindRequestBody(
             canonical,
             deviceVersion.trim(),
             userId,
-            if (contract == BindContract.V3) ts / 1_000L else ts,
+            if (contract == BindContract.V3) activeMs / 1_000L else activeMs,
             contract,
         )
         val endpoint = if (contract == BindContract.V3) OttaiConstants.EP_BIND_V3 else OttaiConstants.EP_BIND
@@ -765,6 +770,75 @@ object OttaiCloudClient {
             headers(ctx, ts, base(ctx)),
         ) ?: return null
         return parseDeviceResp(resp)
+    }
+
+    // ---- account binding for the Syai cloud upload (OttaiCloudUploader) ----
+
+    /** What the account has bound, as far as the upload cares. */
+    sealed class BindState {
+        /** This sensor is bound; [deviceId] is the bound device record, the one the Syai app shows. */
+        data class ThisSensor(val deviceId: Int) : BindState()
+        object Unbound : BindState()
+        data class Other(val mac: String) : BindState()
+    }
+
+    /**
+     * The account's current binding relative to [mac], or null when it could not be told: a
+     * failed request, or a response that is neither a sensor nor explicitly empty. Unknown is
+     * never reported as [BindState.Unbound], because Unbound leads to a bind.
+     */
+    fun bindState(ctx: Context, mac: String): BindState? {
+        val apiBase = base(ctx)
+        val result = httpGetWithResult(
+            apiBase + OttaiConstants.EP_GET_BIND_DEVICE,
+            emptyMap(),
+            headers(ctx, now(), apiBase),
+        )
+        return parseBindState(result, mac)
+    }
+
+    internal fun parseBindState(result: CloudRequestResult, mac: String): BindState? {
+        if (result.failure != null) return null
+        val body = result.body ?: return null
+        val data = body.optJSONObject("data") ?: body.optJSONObject("result")
+        val vo = data?.optJSONObject("cgmDeviceRespVO") ?: data
+        val bound = OttaiConstants.canonicalSensorId(vo?.optString("mac").orEmptyIfNull())
+        if (!OttaiConstants.looksLikeMac(bound)) {
+            // Same rule as accountDevicesResult: only explicit null/empty data means unbound.
+            val explicitlyEmpty = if (data != null) data.length() == 0 else
+                (body.has("data") && body.isNull("data")) || (body.has("result") && body.isNull("result"))
+            return if (explicitlyEmpty) BindState.Unbound else null
+        }
+        if (!OttaiConstants.matchesCanonicalOrKnownNativeAlias(bound, mac)) return BindState.Other(bound)
+        return BindState.ThisSensor(vo?.optInt("id", 0) ?: 0)
+    }
+
+    /**
+     * Bind the sensor to the account for good, so the Syai app shows the uploaded readings.
+     * The server takes activeTime as the sensor start, so only a known start is accepted.
+     */
+    fun bindPermanently(ctx: Context, mac: String, materials: OttaiRegistry.DeviceMaterials): Boolean {
+        if (materials.activeTimeMs <= 0L) {
+            lastFailure = CloudFailure("activation time not known yet")
+            return false
+        }
+        val version = materials.deviceVersion.ifBlank { SYAI_MATERIAL_BIND_DEVICE_VERSION }
+        bind(
+            ctx,
+            mac,
+            version,
+            OttaiRegistry.loadUserId(ctx),
+            BindContract.LEGACY,
+            activeTimeMs = materials.activeTimeMs,
+        )
+        return lastFailure == null
+    }
+
+    /** The signed-in account profile (GET /user/getUser), or null. Not on the main thread. */
+    fun fetchUserProfile(ctx: Context): JSONObject? {
+        val token = OttaiRegistry.loadAccessToken(ctx)
+        if (token.isBlank()) return null
+        return mobileGetUser(ctx, base(ctx), token)
     }
 
     /** One row of GET /deviceBind/list — a sensor the account has bound (now or before). */

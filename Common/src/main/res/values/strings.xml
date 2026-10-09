@@ -1149,6 +1149,17 @@ Pressing OK will generate a connection on this phone and display a QR code that 
     <string name="ottai_code_sent_email">Code sent to %1$s</string>
     <string name="ottai_verify_code_hint">Verification code</string>
     <string name="ottai_sign_out">Sign out</string>
+    <string name="ottai_cloud_upload_title">Upload readings to Syai cloud</string>
+    <string name="ottai_cloud_upload_desc">Sends every accepted reading to the Syai cloud, so the Syai app, the Syai website, its reports and anyone the account shares with see them. Unofficial: the request imitates the Syai Tag app and may stop working.</string>
+    <string name="ottai_cloud_upload_waiting">Waiting for the next reading</string>
+    <string name="ottai_cloud_upload_off">Upload is off</string>
+    <string name="ottai_cloud_upload_needs_syai">Upload needs a Syai account</string>
+    <string name="ottai_cloud_upload_not_signed_in">Not signed in</string>
+    <string name="ottai_cloud_upload_no_device_id">No cloud device id for this sensor. Fetch the sensor from the cloud again.</string>
+    <string name="ottai_cloud_upload_ok">%1$d reading(s) uploaded at %2$s</string>
+    <string name="ottai_cloud_upload_failed">Upload failed: %1$s</string>
+    <string name="ottai_cloud_upload_other_bound">the Syai account has sensor %1$s bound; unbind it in the Syai app</string>
+    <string name="ottai_cloud_upload_bind_failed">binding the sensor to the account failed: %1$s</string>
     <string name="ottai_sensor_saved">Saved</string>
     <string name="ottai_sensor_active">Active</string>
     <string name="ottai_sensor_past">Previously used</string>

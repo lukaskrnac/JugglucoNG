@@ -676,6 +676,10 @@ class OttaiBleManager(
         val persist: Boolean,
         val dataNo: Int,
         val temperatureC: Float,
+        // For the Syai cloud upload, which sends the raw record next to the glucose.
+        val record: OttaiRecord,
+        val mmol: Float,
+        val receivedAtMs: Long,
     )
     private data class RejectedSample(
         val rawCurrent: Int,
@@ -3258,6 +3262,9 @@ class OttaiBleManager(
             persist = shouldPersist,
             dataNo = r.record.dataNo,
             temperatureC = r.record.temperatureC.toFloat(),
+            record = r.record,
+            mmol = mmol,
+            receivedAtMs = receivedAtMs,
         )
     }
 
@@ -3528,6 +3535,16 @@ class OttaiBleManager(
         storeTemperatures(id, readings)
         val toPersist = readings.filter { it.persist }
         if (toPersist.isEmpty()) return
+        // The readings kept here also go to the Syai cloud when the user turned that on. Same set
+        // the Syai Tag app would send: accepted, past warmup, live only when fresh and newer.
+        Applic.app?.let { app ->
+            if (OttaiRegistry.loadCloudUploadEnabled(app)) {
+                val uploader = OttaiCloudUploader.forSensor(app, id)
+                toPersist.forEach {
+                    uploader.enqueue(it.record, it.mmol.toDouble(), it.sampleMs, it.receivedAtMs)
+                }
+            }
+        }
         // Tell the watch's ownership claim that this process decoded a live
         // reading over its own connection. Without this the claim never leaves
         // "requesting", so after a handoff the watch reads the sensor while the
