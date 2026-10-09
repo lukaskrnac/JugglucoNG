@@ -1,0 +1,98 @@
+name: Fork APK build
+run-name: Fork APK (${{ inputs.variant }}) from ${{ github.ref_name }}
+
+# Builds an installable phone APK from any branch of this fork and keeps it as a
+# downloadable artifact. The upstream signed workflows only run in ctqvva/JugglucoNG.
+#
+# Signing:
+#  - With the four FORK_KEYSTORE_* repository secrets set, the APK is signed with your
+#    own key, so later builds install as updates.
+#  - Without them the build falls back to Common/everyone.keystore, which is public:
+#    fine for testing, but anyone could sign an "update" with it.
+#
+# Variants:
+#  - debug:   package tk.glucodata.ng.debug, installs next to the official app.
+#  - release: package tk.glucodata.ng, same as the official app. It can not update an
+#             official install (different signature); move data with export/import.
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'debug = separate test app next to the official one; release = replaces it'
+        type: choice
+        options: [debug, release]
+        default: debug
+      vendor_libs:
+        description: 'Restore the vendor native libraries (Libre etc.) from the published 1.2.2-Alpha APK'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      # libjuice is a submodule and the native build needs it.
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install NDK and CMake
+        run: scripts/dist/install-sdk.sh
+
+      - name: Restore vendor native libraries
+        if: inputs.vendor_libs
+        continue-on-error: true
+        run: scripts/restore-build-inputs.sh
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Build APK
+        env:
+          VARIANT: ${{ inputs.variant }}
+          KEYSTORE_BASE64: ${{ secrets.FORK_KEYSTORE_BASE64 }}
+          ORG_GRADLE_PROJECT_thepassword: ${{ secrets.FORK_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_thekeyalias: ${{ secrets.FORK_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_thekeypassword: ${{ secrets.FORK_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$ORG_GRADLE_PROJECT_thekeypassword" ]; then
+            keydir=$(mktemp -d "$RUNNER_TEMP/fork-signing.XXXXXX")
+            trap 'rm -rf "$keydir"' EXIT
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keydir/fork.keystore"
+            export ORG_GRADLE_PROJECT_thekeyfile="$keydir/fork.keystore"
+            echo "Signing with the fork's own key"
+          else
+            unset ORG_GRADLE_PROJECT_thepassword ORG_GRADLE_PROJECT_thekeyalias ORG_GRADLE_PROJECT_thekeypassword
+            echo "::warning::FORK_KEYSTORE_* secrets not set: signed with the public everyone.keystore"
+          fi
+          task=":Common:assembleMobile${VARIANT^}"
+          ./gradlew "$task" -PjugglucoAbi=arm64-v8a --stacktrace
+
+      - name: Collect APK
+        id: apk
+        run: |
+          mkdir -p dist
+          find Common/build/outputs/apk/mobile -name '*.apk' -exec cp {} dist/ \;
+          ls -l dist
+          test -n "$(ls dist)"
+          echo "name=jugglucong-${{ inputs.variant }}-$(echo "${{ github.ref_name }}" | tr '/' '-')-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: dist/*.apk
+          retention-days: 30
+          if-no-files-found: error
