@@ -225,7 +225,14 @@ object NightscoutFollowerRegistry {
         if (connectNow) {
             connectSensor(context, sensorId)
         }
+        refreshKeepAlive(context)
         return sensorId
+    }
+
+    /** A follower is now on or off, so the foreground service may now be needed or not. */
+    private fun refreshKeepAlive(context: Context) {
+        runCatching { tk.glucodata.Applic.updateservice(context, Natives.getusebluetooth()) }
+            .onFailure { tk.glucodata.Log.stack("NightscoutFollower", "refreshKeepAlive", it) }
     }
 
     fun disableFollowerSensor(context: Context) {
@@ -241,6 +248,7 @@ object NightscoutFollowerRegistry {
                 }
                 SensorBluetooth.sensorEnded(callback.SerialNumber)
             }
+        refreshKeepAlive(context)
     }
 
     fun connectSensor(context: Context, sensorId: String) {

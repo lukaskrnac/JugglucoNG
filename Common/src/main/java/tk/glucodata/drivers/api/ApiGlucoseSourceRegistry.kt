@@ -256,7 +256,14 @@ object ApiGlucoseSourceRegistry {
             pollSeconds = pollSeconds,
         )
         connectSensor(context, nextSensorId)
+        refreshKeepAlive(context)
         return nextSensorId
+    }
+
+    /** A source is now on or off, so the foreground service may now be needed or not. */
+    private fun refreshKeepAlive(context: Context) {
+        runCatching { tk.glucodata.Applic.updateservice(context, tk.glucodata.Natives.getusebluetooth()) }
+            .onFailure { tk.glucodata.Log.stack("ApiGlucoseSource", "refreshKeepAlive", it) }
     }
 
     private fun sourceRuntimeConfigChanged(
@@ -301,6 +308,7 @@ object ApiGlucoseSourceRegistry {
             pollSeconds = config.pollSeconds,
         )
         stopSensor(sensorId)
+        refreshKeepAlive(context)
     }
 
     private fun stopSensor(sensorId: String) {

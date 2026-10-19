@@ -97,8 +97,8 @@ static PowerManager.WakeLock wakeLock =null;
         try {
           if(intent==null) {
              if(!Applic.possiblybluetooth(this)) {
-                if(Natives.activeBackupHostNr( )<=0) {
-                   Log.w(LOG_ID,"sticky restart stopped: no Bluetooth or backup-host work");
+                if(!Applic.keepAliveNeeded(this,false)) {
+                   Log.w(LOG_ID,"sticky restart stopped: no Bluetooth, backup-host or cloud-follower work");
                    started=false;
                    stopSelf();
                    return Service.START_NOT_STICKY;

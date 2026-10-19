@@ -483,13 +483,50 @@ public class Applic extends Application implements androidx.work.Configuration.P
         return 2;
     }
 
+    /**
+     * Whether a cloud follower (Nightscout, API source, MQ cloud) is set up and polling.
+     * It has no sensor and no Bluetooth link of its own, so without this nothing asked for the
+     * foreground service, and vendor battery managers (Honor, Huawei, Xiaomi) froze the app
+     * overnight: polls stopped and the signal-loss alarm fired while the data was there.
+     */
+    static boolean cloudFollowerActive(Context context) {
+        if (context == null)
+            return false;
+        try {
+            if (tk.glucodata.drivers.nightscout.NightscoutFollowerRegistry.INSTANCE.loadConfig(context).isUsable())
+                return true;
+        } catch (Throwable th) {
+            Log.stack(LOG_ID, "cloudFollowerActive nightscout", th);
+        }
+        try {
+            if (tk.glucodata.drivers.api.ApiGlucoseSourceRegistry.INSTANCE.loadConfig(context).isUsable())
+                return true;
+        } catch (Throwable th) {
+            Log.stack(LOG_ID, "cloudFollowerActive api", th);
+        }
+        try {
+            if (tk.glucodata.drivers.mq.MQRegistry.isFollowerEnabled(context))
+                return true;
+        } catch (Throwable th) {
+            Log.stack(LOG_ID, "cloudFollowerActive mq", th);
+        }
+        return false;
+    }
+
+    /** Whether anything needs the foreground service: Bluetooth, a backup host, or a cloud follower. */
+    static boolean keepAliveNeeded(Context context, boolean usebluetooth) {
+        return usebluetooth || Natives.activeBackupHostNr() > 0 || cloudFollowerActive(context);
+    }
+
     public static void updateservice(Context context, boolean usebluetooth) {
         final int backupHosts = Natives.activeBackupHostNr();
-        final boolean keepAliveRequired = usebluetooth || backupHosts > 0;
+        final boolean cloudFollower = cloudFollowerActive(context);
+        final boolean keepAliveRequired = usebluetooth || backupHosts > 0 || cloudFollower;
         if (doLog) {
             Log.i(LOG_ID, "updateservice decision bluetooth=" + usebluetooth
                     + " backupHosts=" + backupHosts
                     + " nightscoutEnabled=" + Natives.getuseuploader()
+                    + " cloudFollower=" + cloudFollower
                     + " keepAlive=" + keepAliveRequired);
         }
         if (keepAliveRequired) {
@@ -522,7 +559,7 @@ public class Applic extends Application implements androidx.work.Configuration.P
         // The teardown frees every callback, including a Nightscout follower that never used
         // Bluetooth, and cancels its poll alarm with it.
         tk.glucodata.drivers.nightscout.NightscoutFollowerRegistry.INSTANCE.ensureFollowerRunning(app);
-        if (Natives.activeBackupHostNr() <= 0) {
+        if (!keepAliveNeeded(app, false)) {
             keeprunning.stop();
         }
     }
@@ -561,7 +598,7 @@ public class Applic extends Application implements androidx.work.Configuration.P
         }
 
         if (!keeprunning.started) {
-            if (usebluetooth || Natives.activeBackupHostNr() > 0) {
+            if (keepAliveNeeded(context, usebluetooth)) {
                 if (keeprunning.start(context)) {
                     if (doLog) {
                         Log.i(LOG_ID, "keeprunning started");
