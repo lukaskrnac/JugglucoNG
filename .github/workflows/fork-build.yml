@@ -1,0 +1,98 @@
+# Installable phone APK for this fork, from any branch.
+#
+# The upstream distribution workflows only run in ctqvva/JugglucoNG on main, with its
+# signing secrets, and ci.yml's APKs lack the vendor JNI libraries (Common/src/main/jniLibs
+# is gitignored). This restores those libraries the same way the official build does:
+# extracted from the published release APK named in scripts/dist/build-inputs.json and
+# checked against its checksums.
+#
+# Signing: with the four ANDROID_* secrets set in this fork (same names as upstream), the APK
+# is signed with that key; without them, with the repository's public everyone.keystore. An
+# APK can only update an installed app signed with the same key. The "dub" variant
+# (tk.glucodata.ng.dub, "JugglucoNG Dub") installs next to an existing JugglucoNG instead.
+name: Fork build
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'release (tk.glucodata.ng) or releasedub (tk.glucodata.ng.dub, installs side by side)'
+        type: choice
+        options: [releasedub, release]
+        default: releasedub
+  # workflow_dispatch only shows up once this file is on the default branch, so pushes to these
+  # branches build too.
+  push:
+    branches:
+      - follower-keepalive
+      - 'build/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      VARIANT: ${{ inputs.variant || 'releasedub' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install NDK, CMake and platform
+        run: scripts/dist/install-sdk.sh
+
+      - name: Restore vendor JNI libraries from the published release
+        run: scripts/restore-build-inputs.sh
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build phone APK (arm64)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          signing=()
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            keystore="$RUNNER_TEMP/fork.keystore"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            signing=(-Pthekeyfile="$keystore" -Pthepassword="$STORE_PASSWORD"
+                     -Pthekeyalias="$KEY_ALIAS" -Pthekeypassword="$KEY_PASSWORD")
+            echo "Signing with this fork's key"
+          else
+            echo "No signing secrets: signing with the repository's everyone.keystore"
+          fi
+          task=":Common:assembleMobile${VARIANT^}"
+          ./gradlew "$task" -PjugglucoAbi=arm64-v8a --no-daemon --stacktrace "${signing[@]}"
+          rm -f "$RUNNER_TEMP/fork.keystore"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JugglucoNG-${{ env.VARIANT }}-${{ github.ref_name }}-${{ github.sha }}
+          path: Common/build/outputs/apk/mobile/${{ env.VARIANT }}/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Summary
+        run: |
+          {
+            echo "**$VARIANT** APK for \`${GITHUB_REF_NAME}\` (\`${GITHUB_SHA::7}\`), arm64, is in this run's Artifacts (14 days)."
+            if [ "$VARIANT" = releasedub ]; then
+              echo "It installs as *JugglucoNG Dub* next to an existing JugglucoNG."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
